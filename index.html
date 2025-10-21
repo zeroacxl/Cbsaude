@@ -457,7 +457,7 @@
         <input id="userInput" type="text" placeholder="admin">
         <label>Senha</label>
         <input id="passInput" type="password" placeholder="1234">
-        <button class="btn-top" onclick="doLogin()">Entrar</button>
+        <button class="btn-top" id="btnLogin">Entrar</button>
         <p style="color:#666;font-size:.8rem;margin-top:.8rem;">Login master: admin / 1234</p>
     </div>
 </section>
@@ -479,7 +479,7 @@
 
     <div class="container">
         <div class="card">
-            <form id="associadoForm" onsubmit="saveAll(event)">
+            <form id="associadoForm">
                 <input id="editIndex" type="hidden">
 
                 <!-- ABAS RESPONSIVAS -->
@@ -642,6 +642,28 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
+    // Inicialização do admin imediatamente após Firebase (garante que o login admin/1234 funcione)
+    async function initAdmin() {
+        try {
+            const funcs = await getFuncionarios();
+            if (!funcs.find(f => f.user === 'admin')) {
+                await addDoc(collection(db, 'funcionarios'), { 
+                    nome: 'Administrador', 
+                    user: 'admin', 
+                    pass: '1234', 
+                    admin: true 
+                });
+                console.log('Admin padrão criado com sucesso (user: admin, pass: 1234).');
+            } else {
+                console.log('Admin padrão já existe.');
+            }
+        } catch (error) {
+            console.error('Erro ao inicializar admin:', error);
+        }
+    }
+
+    await initAdmin();
+
     // ---------- FUNÇÕES UTILITÁRIAS ----------
     function escapeHTML(str) {
         const div = document.createElement('div');
@@ -740,8 +762,6 @@
         };
     }
 
-    let filtrarModal = null;
-    let debouncedFilter = null;
     async function _filtrarModal() {
         const term = removerAcentos(document.getElementById('searchModalInput').value.toLowerCase());
         const lista = await getData();
@@ -750,7 +770,7 @@
         lista
             .filter(a => {
                 const nome = removerAcentos(a.nome.toLowerCase());
-                const cpf = a.cpf.replace(/\D/g, '');
+                const cpf = a.cpf ? a.cpf.replace(/\D/g, '') : '';
                 return nome.includes(term) || cpf.includes(term.replace(/\D/g, ''));
             })
             .forEach(a => {
@@ -768,11 +788,11 @@
         if (!div.innerHTML) div.innerHTML = '<p>Nenhum resultado.</p>';
     }
 
-    filtrarModal = _filtrarModal;
-    debouncedFilter = debounce(filtrarModal, 300);
+    const filtrarModal = _filtrarModal;
+    const debouncedFilter = debounce(filtrarModal, 300);
 
     async function doLogin() {
-        const btnLogin = document.querySelector('button[onclick="doLogin()"]');
+        const btnLogin = document.getElementById('btnLogin');
         const u = document.getElementById('userInput').value.trim();
         const p = document.getElementById('passInput').value.trim();
         
@@ -784,7 +804,7 @@
         btnLogin.disabled = true;
         btnLogin.textContent = 'Entrando...';
         
-        setTimeout(async () => {
+        try {
             const funcs = await getFuncionarios();
             const user = funcs.find(f => f.user === u && f.pass === p);
             
@@ -802,10 +822,13 @@
                 document.getElementById('passInput').value = '';
                 document.getElementById('passInput').focus();
             }
-            
+        } catch (error) {
+            console.error('Erro no login:', error);
+            mostrarNotificacao('Erro ao conectar com o banco de dados.', 'erro');
+        } finally {
             btnLogin.disabled = false;
             btnLogin.textContent = 'Entrar';
-        }, 800);
+        }
     }
 
     function doLogout() {
@@ -837,7 +860,7 @@
     }
 
     async function gravar() {
-        await saveAll(new Event('submit'));
+        await saveAll();
     }
 
     function alterar() {
@@ -895,30 +918,39 @@
             mostrarNotificacao('Usuário já existe.', 'erro');
             return;
         }
-        const newFunc = { nome, user, pass, admin: false };
-        await addDoc(collection(db, 'funcionarios'), newFunc);
-        document.getElementById('funcNome').value = '';
-        document.getElementById('funcUser').value = '';
-        document.getElementById('funcPass').value = '';
-        await renderizarFuncionarios();
-        mostrarNotificacao('Funcionário adicionado com sucesso!', 'sucesso');
+        try {
+            const newFunc = { nome, user, pass, admin: false };
+            await addDoc(collection(db, 'funcionarios'), newFunc);
+            document.getElementById('funcNome').value = '';
+            document.getElementById('funcUser').value = '';
+            document.getElementById('funcPass').value = '';
+            await renderizarFuncionarios();
+            mostrarNotificacao('Funcionário adicionado com sucesso!', 'sucesso');
+        } catch (error) {
+            console.error('Erro ao adicionar funcionário:', error);
+            mostrarNotificacao('Erro ao adicionar funcionário.', 'erro');
+        }
     }
 
     async function renderizarFuncionarios() {
-        const funcs = await getFuncionarios();
-        const div = document.getElementById('listaFuncionarios');
-        div.innerHTML = '';
-        funcs.forEach(f => {
-            const adminText = f.admin ? ' - Admin' : '';
-            const removeBtn = f.admin ? '' : `<button class="btn-top btn-danger btn-small" onclick="removerFuncionario('${f.id}')">Remover</button>`;
-            div.insertAdjacentHTML('beforeend', `
-                <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
-                    <span>${escapeHTML(f.nome)} (${f.user})${adminText}</span>
-                    ${removeBtn}
-                </div>
-            `);
-        });
-        if (!funcs.length) div.innerHTML = '<p>Nenhum funcionário cadastrado.</p>';
+        try {
+            const funcs = await getFuncionarios();
+            const div = document.getElementById('listaFuncionarios');
+            div.innerHTML = '';
+            funcs.forEach(f => {
+                const adminText = f.admin ? ' - Admin' : '';
+                const removeBtn = f.admin ? '' : `<button class="btn-top btn-danger btn-small" onclick="removerFuncionario('${f.id}')">Remover</button>`;
+                div.insertAdjacentHTML('beforeend', `
+                    <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
+                        <span>${escapeHTML(f.nome)} (${f.user})${adminText}</span>
+                        ${removeBtn}
+                    </div>
+                `);
+            });
+            if (!funcs.length) div.innerHTML = '<p>Nenhum funcionário cadastrado.</p>';
+        } catch (error) {
+            console.error('Erro ao renderizar funcionários:', error);
+        }
     }
 
     async function removerFuncionario(id) {
@@ -927,8 +959,14 @@
             return;
         }
         if (!confirm('Remover funcionário?')) return;
-        await deleteDoc(doc(db, 'funcionarios', id));
-        await renderizarFuncionarios();
+        try {
+            await deleteDoc(doc(db, 'funcionarios', id));
+            await renderizarFuncionarios();
+            mostrarNotificacao('Funcionário removido com sucesso!', 'sucesso');
+        } catch (error) {
+            console.error('Erro ao remover funcionário:', error);
+            mostrarNotificacao('Erro ao remover funcionário.', 'erro');
+        }
     }
 
     async function removerCooperado(id, event) {
@@ -936,15 +974,23 @@
         if (!confirm('Confirma remoção deste cooperado?')) return;
         const item = event.target.closest('.list-item');
         if (item) item.classList.add('fade-out');
-        await deleteDoc(doc(db, 'associados', id));
-        setTimeout(() => {
-            filtrarModal();
-        }, 400);
+        try {
+            await deleteDoc(doc(db, 'associados', id));
+            setTimeout(() => {
+                filtrarModal();
+            }, 400);
+            mostrarNotificacao('Cooperado removido com sucesso!', 'sucesso');
+        } catch (error) {
+            console.error('Erro ao remover cooperado:', error);
+            mostrarNotificacao('Erro ao remover cooperado.', 'erro');
+        }
     }
 
     function removerAcentos(str) {
         return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     }
+
+    window.deps = [];
 
     function addDependente() {
         window.deps.push({ nome: '', parent: '', nasc: '', cpf: '', plano: '' });
@@ -984,109 +1030,114 @@
             r.innerHTML = '<p>Selecione ou crie um cooperado para ver o resumo.</p>';
             return;
         }
-        const docSnap = await getDoc(doc(db, 'associados', editId));
-        if (!docSnap.exists()) {
-            r.innerHTML = '<p>Cooperado não encontrado.</p>';
-            return;
-        }
-        const a = docSnap.data();
+        try {
+            const docSnap = await getDoc(doc(db, 'associados', editId));
+            if (!docSnap.exists()) {
+                r.innerHTML = '<p>Cooperado não encontrado.</p>';
+                return;
+            }
+            const a = docSnap.data();
 
-        const nome = a.nome || '—';
-        const cpf = a.cpf || '—';
-        const planoTit = a.plano;
-        const valorTit = valorPlano(planoTit);
-        r.insertAdjacentHTML('beforeend', `
-            <div class="resumo-block">
-                <h3>Titular</h3>
-                <div class="resumo-line"><span>Nome:</span><span>${escapeHTML(nome)}</span></div>
-                <div class="resumo-line"><span>CPF:</span><span>${cpf}</span></div>
-                <div class="resumo-line"><span>Plano:</span><span>${planoTit || '—'} - R$ ${valorTit.toFixed(2)}</span></div>
-            </div>
-        `);
+            const nome = a.nome || '—';
+            const cpf = a.cpf || '—';
+            const planoTit = a.plano;
+            const valorTit = valorPlano(planoTit);
+            r.insertAdjacentHTML('beforeend', `
+                <div class="resumo-block">
+                    <h3>Titular</h3>
+                    <div class="resumo-line"><span>Nome:</span><span>${escapeHTML(nome)}</span></div>
+                    <div class="resumo-line"><span>CPF:</span><span>${cpf}</span></div>
+                    <div class="resumo-line"><span>Plano:</span><span>${planoTit || '—'} - R$ ${valorTit.toFixed(2)}</span></div>
+                </div>
+            `);
 
-        let total = valorTit;
-        if (a.dependentes && a.dependentes.length) {
-            r.insertAdjacentHTML('beforeend', '<h3>Dependentes</h3>');
-            a.dependentes.forEach(d => {
-                const v = valorPlano(d.plano);
-                total += v;
+            let total = valorTit;
+            if (a.dependentes && a.dependentes.length) {
+                r.insertAdjacentHTML('beforeend', '<h3>Dependentes</h3>');
+                a.dependentes.forEach(d => {
+                    const v = valorPlano(d.plano);
+                    total += v;
+                    r.insertAdjacentHTML('beforeend', `
+                        <div class="resumo-line">
+                            <span>${escapeHTML(d.nome || '—')} (${escapeHTML(d.parent || '—')}) - CPF: ${d.cpf || '—'} - Plano: ${d.plano || '—'}</span>
+                            <span>R$ ${v.toFixed(2)}</span>
+                        </div>
+                    `);
+                });
+            }
+
+            const conj = a.conjuge || {};
+            const conjNome = conj.nome || '';
+            const conjCpf = conj.cpf || '—';
+            const conjNasc = conj.nasc || '—';
+            const conjPlano = conj.plano;
+            const conjValor = valorPlano(conjPlano);
+            if (conjNome) {
+                r.insertAdjacentHTML('beforeend', '<h3>Cônjuge</h3>');
                 r.insertAdjacentHTML('beforeend', `
                     <div class="resumo-line">
-                        <span>${escapeHTML(d.nome || '—')} (${escapeHTML(d.parent || '—')}) - CPF: ${d.cpf || '—'} - Plano: ${d.plano || '—'}</span>
-                        <span>R$ ${v.toFixed(2)}</span>
+                        <span>${escapeHTML(conjNome)} - CPF: ${conjCpf} - Nasc: ${conjNasc} - Plano: ${conjPlano || '—'}</span>
+                        <span>R$ ${conjValor.toFixed(2)}</span>
                     </div>
                 `);
-            });
-        }
-
-        const conj = a.conjuge || {};
-        const conjNome = conj.nome || '';
-        const conjCpf = conj.cpf || '—';
-        const conjNasc = conj.nasc || '—';
-        const conjPlano = conj.plano;
-        const conjValor = valorPlano(conjPlano);
-        if (conjNome) {
-            r.insertAdjacentHTML('beforeend', '<h3>Cônjuge</h3>');
-            r.insertAdjacentHTML('beforeend', `
-                <div class="resumo-line">
-                    <span>${escapeHTML(conjNome)} - CPF: ${conjCpf} - Nasc: ${conjNasc} - Plano: ${conjPlano || '—'}</span>
-                    <span>R$ ${conjValor.toFixed(2)}</span>
-                </div>
-            `);
-            total += conjValor;
-        }
-
-        let months = 0;
-        let totalPaid = 0;
-        if (a.dataAssociacao) {
-            const joinDate = new Date(a.dataAssociacao);
-            const now = new Date();
-            months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth());
-            if (now.getDate() < joinDate.getDate()) months--;
-            months = Math.max(months, 0);
-            totalPaid = months * total;
-            r.insertAdjacentHTML('beforeend', `
-                <div class="resumo-block">
-                    <h3>Histórico</h3>
-                    <div class="resumo-line"><span>Data de Associação:</span><span>${a.dataAssociacao}</span></div>
-                    <div class="resumo-line"><span>Meses Cooperado:</span><span>${months}</span></div>
-                    <div class="resumo-line"><span>Total Pago (estimado):</span><span>R$ ${totalPaid.toFixed(2)}</span></div>
-                </div>
-            `);
-        } else {
-            r.insertAdjacentHTML('beforeend', `
-                <div class="resumo-block">
-                    <h3>Histórico</h3>
-                    <p>Data de Associação não informada.</p>
-                </div>
-            `);
-        }
-
-        let pend = [];
-        if (!a.cpf) pend.push('CPF do titular faltando');
-        if (!a.nasc) pend.push('Data de nascimento do titular faltando');
-        a.dependentes?.forEach((d, i) => {
-            if (d.nome) {
-                if (!d.cpf) pend.push(`CPF do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
-                if (!d.nasc) pend.push(`Data de nascimento do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
+                total += conjValor;
             }
-        });
-        if (conjNome) {
-            if (!conj.cpf) pend.push('CPF do cônjuge faltando');
-            if (!conj.nasc) pend.push('Data de nascimento do cônjuge faltando');
-        }
-        if (pend.length) {
-            r.insertAdjacentHTML('beforeend', `
-                <div class="resumo-block">
-                    <h3>Pendências</h3>
-                    <ul>${pend.map(p => `<li>${p}</li>`).join('')}</ul>
-                </div>
-            `);
-        }
 
-        r.insertAdjacentHTML('beforeend', `
-            <div class="total">Total Mensal: R$ ${total.toFixed(2)}</div>
-        `);
+            let months = 0;
+            let totalPaid = 0;
+            if (a.dataAssociacao) {
+                const joinDate = new Date(a.dataAssociacao);
+                const now = new Date();
+                months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth());
+                if (now.getDate() < joinDate.getDate()) months--;
+                months = Math.max(months, 0);
+                totalPaid = months * total;
+                r.insertAdjacentHTML('beforeend', `
+                    <div class="resumo-block">
+                        <h3>Histórico</h3>
+                        <div class="resumo-line"><span>Data de Associação:</span><span>${a.dataAssociacao}</span></div>
+                        <div class="resumo-line"><span>Meses Cooperado:</span><span>${months}</span></div>
+                        <div class="resumo-line"><span>Total Pago (estimado):</span><span>R$ ${totalPaid.toFixed(2)}</span></div>
+                    </div>
+                `);
+            } else {
+                r.insertAdjacentHTML('beforeend', `
+                    <div class="resumo-block">
+                        <h3>Histórico</h3>
+                        <p>Data de Associação não informada.</p>
+                    </div>
+                `);
+            }
+
+            let pend = [];
+            if (!a.cpf) pend.push('CPF do titular faltando');
+            if (!a.nasc) pend.push('Data de nascimento do titular faltando');
+            a.dependentes?.forEach((d, i) => {
+                if (d.nome) {
+                    if (!d.cpf) pend.push(`CPF do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
+                    if (!d.nasc) pend.push(`Data de nascimento do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
+                }
+            });
+            if (conjNome) {
+                if (!conj.cpf) pend.push('CPF do cônjuge faltando');
+                if (!conj.nasc) pend.push('Data de nascimento do cônjuge faltando');
+            }
+            if (pend.length) {
+                r.insertAdjacentHTML('beforeend', `
+                    <div class="resumo-block">
+                        <h3>Pendências</h3>
+                        <ul>${pend.map(p => `<li>${p}</li>`).join('')}</ul>
+                    </div>
+                `);
+            }
+
+            r.insertAdjacentHTML('beforeend', `
+                <div class="total">Total Mensal: R$ ${total.toFixed(2)}</div>
+            `);
+        } catch (error) {
+            console.error('Erro ao construir resumo:', error);
+            r.innerHTML = '<p>Erro ao carregar resumo.</p>';
+        }
     }
 
     async function abrirResumoGeral() {
@@ -1106,35 +1157,40 @@
         const r = document.getElementById('resumoGeralContent');
         r.innerHTML = '<h2>Resumo Geral - CBSaúde Cooperados</h2>';
 
-        const lista = await getData();
-        let totalGeral = 0;
-        let countCooperados = lista.length;
+        try {
+            const lista = await getData();
+            let totalGeral = 0;
+            let countCooperados = lista.length;
 
-        for (const a of lista) {
-            let totalIndividual = valorPlano(a.plano);
-            a.dependentes?.forEach(d => totalIndividual += valorPlano(d.plano));
-            if (a.conjuge?.nome) totalIndividual += valorPlano(a.conjuge.plano);
-            totalGeral += totalIndividual;
+            for (const a of lista) {
+                let totalIndividual = valorPlano(a.plano);
+                a.dependentes?.forEach(d => totalIndividual += valorPlano(d.plano));
+                if (a.conjuge?.nome) totalIndividual += valorPlano(a.conjuge.plano);
+                totalGeral += totalIndividual;
 
-            const obs = a.obs ? `<p>Observações: ${escapeHTML(a.obs)}</p>` : '';
+                const obs = a.obs ? `<p>Observações: ${escapeHTML(a.obs)}</p>` : '';
+
+                r.insertAdjacentHTML('beforeend', `
+                    <div class="resumo-block">
+                        <h3>${escapeHTML(a.nome)}</h3>
+                        <div class="resumo-line"><span>CPF:</span><span>${a.cpf || '—'}</span></div>
+                        <div class="resumo-line"><span>Total Mensal:</span><span>R$ ${totalIndividual.toFixed(2)}</span></div>
+                        ${obs}
+                    </div>
+                `);
+            }
 
             r.insertAdjacentHTML('beforeend', `
                 <div class="resumo-block">
-                    <h3>${escapeHTML(a.nome)}</h3>
-                    <div class="resumo-line"><span>CPF:</span><span>${a.cpf || '—'}</span></div>
-                    <div class="resumo-line"><span>Total Mensal:</span><span>R$ ${totalIndividual.toFixed(2)}</span></div>
-                    ${obs}
+                    <h3>Totais</h3>
+                    <div class="resumo-line"><span>Número de Cooperados:</span><span>${countCooperados}</span></div>
+                    <div class="total">Total Geral Mensal: R$ ${totalGeral.toFixed(2)}</div>
                 </div>
             `);
+        } catch (error) {
+            console.error('Erro ao construir resumo geral:', error);
+            r.innerHTML += '<p>Erro ao carregar resumo geral.</p>';
         }
-
-        r.insertAdjacentHTML('beforeend', `
-            <div class="resumo-block">
-                <h3>Totais</h3>
-                <div class="resumo-line"><span>Número de Cooperados:</span><span>${countCooperados}</span></div>
-                <div class="total">Total Geral Mensal: R$ ${totalGeral.toFixed(2)}</div>
-            </div>
-        `);
     }
 
     function valorPlano(cod) {
@@ -1154,34 +1210,39 @@
     }
 
     async function editAssociado(id) {
-        const docSnap = await getDoc(doc(db, 'associados', id));
-        if (docSnap.exists()) {
-            const a = docSnap.data();
-            document.getElementById('editIndex').value = id;
+        try {
+            const docSnap = await getDoc(doc(db, 'associados', id));
+            if (docSnap.exists()) {
+                const a = docSnap.data();
+                document.getElementById('editIndex').value = id;
 
-            // Preencher campos principais (excluindo dependentes e conjuge)
-            Object.keys(a).forEach(k => {
-                if (k !== 'id' && k !== 'dependentes' && k !== 'conjuge') {
-                    const el = document.getElementById(k);
-                    if (el) el.value = a[k] || '';
-                }
-            });
+                // Preencher campos principais (excluindo dependentes e conjuge)
+                Object.keys(a).forEach(k => {
+                    if (k !== 'id' && k !== 'dependentes' && k !== 'conjuge') {
+                        const el = document.getElementById(k);
+                        if (el) el.value = a[k] || '';
+                    }
+                });
 
-            window.deps = a.dependentes || [];
-            renderDeps();
-            const conj = a.conjuge || {};
-            document.getElementById('conjNome').value = conj.nome || '';
-            document.getElementById('conjCpf').value = conj.cpf || '';
-            document.getElementById('conjNasc').value = conj.nasc || '';
-            document.getElementById('conjPlano').value = conj.plano || '';
+                window.deps = a.dependentes || [];
+                renderDeps();
+                const conj = a.conjuge || {};
+                document.getElementById('conjNome').value = conj.nome || '';
+                document.getElementById('conjCpf').value = conj.cpf || '';
+                document.getElementById('conjNasc').value = conj.nasc || '';
+                document.getElementById('conjPlano').value = conj.plano || '';
 
-            switchTab('dados');
-            fecharPesquisa();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+                switchTab('dados');
+                fecharPesquisa();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        } catch (error) {
+            console.error('Erro ao editar associado:', error);
+            mostrarNotificacao('Erro ao carregar dados.', 'erro');
         }
     }
 
-    // Salvar dados
+    // Salvar dados (associados na coleção 'associados')
     async function saveAll(event) {
         if (event) event.preventDefault();
         const form = document.getElementById('associadoForm');
@@ -1189,27 +1250,27 @@
         
         const associado = {
             nome: form.nome.value.trim(),
-            cpf: form.cpf.value,
-            pasta: form.pasta.value,
-            matricula: form.matricula.value,
+            cpf: form.cpf.value.trim(),
+            pasta: form.pasta.value.trim(),
+            matricula: form.matricula.value.trim(),
             nasc: form.nasc.value,
             dataAssociacao: form.dataAssociacao.value,
             sexo: form.sexo.value,
             civil: form.civil.value,
-            endereco: form.endereco.value,
-            numero: form.numero.value,
-            bairro: form.bairro.value,
-            municipio: form.municipio.value,
-            estado: form.estado.value,
-            cep: form.cep.value,
-            telefone: form.telefone.value,
-            email: form.email.value,
+            endereco: form.endereco.value.trim(),
+            numero: form.numero.value.trim(),
+            bairro: form.bairro.value.trim(),
+            municipio: form.municipio.value.trim(),
+            estado: form.estado.value.trim(),
+            cep: form.cep.value.trim(),
+            telefone: form.telefone.value.trim(),
+            email: form.email.value.trim(),
             plano: form.plano.value,
-            obs: form.obs.value,
+            obs: form.obs.value.trim(),
             dependentes: window.deps,
             conjuge: {
-                nome: form.conjNome.value,
-                cpf: form.conjCpf.value,
+                nome: form.conjNome.value.trim(),
+                cpf: form.conjCpf.value.trim(),
                 nasc: form.conjNasc.value,
                 plano: form.conjPlano.value
             }
@@ -1238,22 +1299,12 @@
                 await addDoc(collection(db, 'associados'), associado);
             }
             resetAll();
-            mostrarNotificacao('Dados salvos com sucesso!', 'sucesso');
+            mostrarNotificacao('Dados salvos com sucesso na coleção "associados"!', 'sucesso');
         } catch (error) {
             console.error('Erro ao salvar:', error);
             mostrarNotificacao('Erro ao salvar os dados. Tente novamente.', 'erro');
         }
     }
-
-    // Inicialização do admin
-    async function initAdmin() {
-        const funcs = await getFuncionarios();
-        if (!funcs.find(f => f.user === 'admin')) {
-            await addDoc(collection(db, 'funcionarios'), { nome: 'Administrador', user: 'admin', pass: '1234', admin: true });
-        }
-    }
-
-    window.deps = [];
 
     // Expor funções para escopo global
     window.doLogin = doLogin;
@@ -1266,6 +1317,7 @@
     window.imprimirPDF = imprimirPDF;
     window.switchTab = switchTab;
     window.addDependente = addDependente;
+    window.renderDeps = renderDeps;
     window.adicionarFuncionario = adicionarFuncionario;
     window.fecharGerenciaFuncionarios = fecharGerenciaFuncionarios;
     window.abrirGerenciaFuncionarios = abrirGerenciaFuncionarios;
@@ -1276,8 +1328,7 @@
     window.debouncedFilter = debouncedFilter;
     window.saveAll = saveAll;
 
-    window.onload = async () => {
-        await initAdmin();
+    window.onload = () => {
         document.getElementById('userInput').focus();
 
         // Formatação automática
@@ -1301,6 +1352,9 @@
                 this.focus();
             }
         });
+
+        // Event listener para o botão de login
+        document.getElementById('btnLogin').addEventListener('click', doLogin);
     };
 </script>
 </body>
