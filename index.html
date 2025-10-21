@@ -77,13 +77,18 @@
             overflow: hidden;
         }
         
-        .btn-top:hover {
+        .btn-top:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .btn-top:hover:not(:disabled) {
             transform: translateY(-2px) scale(1.05);
             box-shadow: var(--sombra-hover);
             background: var(--azul-escuro);
         }
         
-        .btn-top:active {
+        .btn-top:active:not(:disabled) {
             transform: translateY(1px) scale(0.98);
             box-shadow: var(--sombra);
         }
@@ -279,6 +284,7 @@
             padding: 4vh 1rem;
             z-index: 200;
             animation: fadeIn 0.3s;
+            overflow-y: auto;
         }
         .modal.active {
             display: flex;
@@ -445,6 +451,21 @@
         .notificacao.aviso {
             background: var(--aviso);
         }
+        
+        .login-box h2 {
+            color: var(--azul-escuro);
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        
+        .login-box label {
+            margin-top: 1rem;
+        }
+        
+        .login-box .btn-top {
+            width: 100%;
+            margin-top: 1.5rem;
+        }
     </style>
 </head>
 <body>
@@ -457,8 +478,8 @@
         <input id="userInput" type="text" placeholder="admin">
         <label>Senha</label>
         <input id="passInput" type="password" placeholder="1234">
-        <button class="btn-top" id="btnLogin">Entrar</button>
-        <p style="color:#666;font-size:.8rem;margin-top:.8rem;">Login master: admin / 1234</p>
+        <button class="btn-top" onclick="doLogin()">Entrar</button>
+        <p style="color:#666;font-size:.8rem;margin-top:.8rem;text-align:center;">Login master: admin / 1234</p>
     </div>
 </section>
 
@@ -479,7 +500,7 @@
 
     <div class="container">
         <div class="card">
-            <form id="associadoForm">
+            <form id="associadoForm" onsubmit="saveAll(event)">
                 <input id="editIndex" type="hidden">
 
                 <!-- ABAS RESPONSIVAS -->
@@ -642,30 +663,9 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // Inicialização do admin imediatamente após Firebase (garante que o login admin/1234 funcione)
-    async function initAdmin() {
-        try {
-            const funcs = await getFuncionarios();
-            if (!funcs.find(f => f.user === 'admin')) {
-                await addDoc(collection(db, 'funcionarios'), { 
-                    nome: 'Administrador', 
-                    user: 'admin', 
-                    pass: '1234', 
-                    admin: true 
-                });
-                console.log('Admin padrão criado com sucesso (user: admin, pass: 1234).');
-            } else {
-                console.log('Admin padrão já existe.');
-            }
-        } catch (error) {
-            console.error('Erro ao inicializar admin:', error);
-        }
-    }
-
-    await initAdmin();
-
     // ---------- FUNÇÕES UTILITÁRIAS ----------
     function escapeHTML(str) {
+        if (!str) return '';
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
@@ -740,7 +740,7 @@
     }
 
     // ---------- FUNÇÕES GLOBAIS (BOTÕES E NAVEGAÇÃO) ----------
-    // Sistema de notificções
+    // Sistema de notificações
     function mostrarNotificacao(mensagem, tipo = 'info') {
         const div = document.createElement('div');
         div.className = `notificacao ${tipo} animate-slide-in`;
@@ -762,37 +762,22 @@
         };
     }
 
-    async function _filtrarModal() {
-        const term = removerAcentos(document.getElementById('searchModalInput').value.toLowerCase());
-        const lista = await getData();
-        const div = document.getElementById('modalResults');
-        div.innerHTML = '';
-        lista
-            .filter(a => {
-                const nome = removerAcentos(a.nome.toLowerCase());
-                const cpf = a.cpf ? a.cpf.replace(/\D/g, '') : '';
-                return nome.includes(term) || cpf.includes(term.replace(/\D/g, ''));
-            })
-            .forEach(a => {
-                const removeBtn = window.usuarioLogado?.admin ? `<button class="btn-top btn-danger btn-small" onclick="removerCooperado('${a.id}', event)">Remover</button>` : '';
-                div.insertAdjacentHTML('beforeend', `
-                    <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
-                        <div onclick="editAssociado('${a.id}')">
-                            <span>${escapeHTML(a.nome)}</span>
-                            <small>CPF: ${a.cpf || '—'} | Nº da Pasta: ${a.pasta || '—'}</small>
-                        </div>
-                        ${removeBtn}
-                    </div>
-                `);
-            });
-        if (!div.innerHTML) div.innerHTML = '<p>Nenhum resultado.</p>';
+    function removerAcentos(str) {
+        return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     }
 
-    const filtrarModal = _filtrarModal;
-    const debouncedFilter = debounce(filtrarModal, 300);
+    function valorPlano(cod) {
+        switch (cod) {
+            case '224': return 20;
+            case '226': return 115;
+            case '228': return 155;
+            default: return 0;
+        }
+    }
 
-    async function doLogin() {
-        const btnLogin = document.getElementById('btnLogin');
+    // Exportar funções para o escopo global
+    window.doLogin = async function() {
+        const btnLogin = document.querySelector('button[onclick="doLogin()"]');
         const u = document.getElementById('userInput').value.trim();
         const p = document.getElementById('passInput').value.trim();
         
@@ -804,7 +789,7 @@
         btnLogin.disabled = true;
         btnLogin.textContent = 'Entrando...';
         
-        try {
+        setTimeout(async () => {
             const funcs = await getFuncionarios();
             const user = funcs.find(f => f.user === u && f.pass === p);
             
@@ -822,16 +807,13 @@
                 document.getElementById('passInput').value = '';
                 document.getElementById('passInput').focus();
             }
-        } catch (error) {
-            console.error('Erro no login:', error);
-            mostrarNotificacao('Erro ao conectar com o banco de dados.', 'erro');
-        } finally {
+            
             btnLogin.disabled = false;
             btnLogin.textContent = 'Entrar';
-        }
-    }
+        }, 800);
+    };
 
-    function doLogout() {
+    window.doLogout = function() {
         if (confirm('Deseja realmente sair?')) {
             window.usuarioLogado = null;
             document.getElementById('mainApp').classList.add('hidden');
@@ -840,34 +822,36 @@
             document.getElementById('passInput').value = '';
             document.getElementById('btnGerencia').classList.add('hidden');
             document.getElementById('btnResumoGeral').classList.add('hidden');
+            mostrarNotificacao('Você saiu do sistema', 'info');
         }
-    }
+    };
 
-    function abrirPesquisa() {
+    window.abrirPesquisa = function() {
         document.getElementById('modalPesquisa').classList.add('active');
         document.getElementById('searchModalInput').value = '';
         filtrarModal();
         document.getElementById('searchModalInput').focus();
-    }
+    };
 
-    function fecharPesquisa() {
+    window.fecharPesquisa = function() {
         document.getElementById('modalPesquisa').classList.remove('active');
-    }
+    };
 
-    function novo() {
+    window.novo = function() {
         resetAll();
         switchTab('dados');
-    }
+        mostrarNotificacao('Novo cooperado iniciado', 'info');
+    };
 
-    async function gravar() {
-        await saveAll();
-    }
+    window.gravar = async function() {
+        await saveAll(new Event('submit'));
+    };
 
-    function alterar() {
+    window.alterar = function() {
         abrirPesquisa();
-    }
+    };
 
-    async function imprimirPDF() {
+    window.imprimirPDF = async function() {
         await buildResumo();
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
@@ -875,33 +859,42 @@
         doc.setFontSize(16);
         doc.text('CBSaúde Cooperados - Resumo Individual', 14, 22);
         doc.setFontSize(12);
-        const linhas = conteudo.split('\n');
-        linhas.forEach((linha, i) => doc.text(linha, 14, 40 + i * 6));
+        const linhas = conteudo.split('\n').filter(l => l.trim());
+        let y = 40;
+        linhas.forEach((linha) => {
+            if (y > 280) {
+                doc.addPage();
+                y = 20;
+            }
+            doc.text(linha.substring(0, 80), 14, y);
+            y += 6;
+        });
         doc.save('resumo-individual-cbsaude.pdf');
-    }
+        mostrarNotificacao('PDF gerado com sucesso!', 'sucesso');
+    };
 
-    async function switchTab(tab) {
+    window.switchTab = async function(tab) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tabContent').forEach(c => c.classList.remove('active'));
         document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
         document.getElementById(tab).classList.add('active');
         if (tab === 'resumo') await buildResumo();
-    }
+    };
 
-    async function abrirGerenciaFuncionarios() {
+    window.abrirGerenciaFuncionarios = async function() {
         if (!window.usuarioLogado?.admin) {
             mostrarNotificacao('Acesso negado. Apenas administradores podem gerenciar funcionários.', 'erro');
             return;
         }
         document.getElementById('modalFuncionarios').classList.add('active');
         await renderizarFuncionarios();
-    }
+    };
 
-    function fecharGerenciaFuncionarios() {
+    window.fecharGerenciaFuncionarios = function() {
         document.getElementById('modalFuncionarios').classList.remove('active');
-    }
+    };
 
-    async function adicionarFuncionario() {
+    window.adicionarFuncionario = async function() {
         if (!window.usuarioLogado?.admin) {
             mostrarNotificacao('Acesso negado.', 'erro');
             return;
@@ -918,91 +911,94 @@
             mostrarNotificacao('Usuário já existe.', 'erro');
             return;
         }
-        try {
-            const newFunc = { nome, user, pass, admin: false };
-            await addDoc(collection(db, 'funcionarios'), newFunc);
-            document.getElementById('funcNome').value = '';
-            document.getElementById('funcUser').value = '';
-            document.getElementById('funcPass').value = '';
-            await renderizarFuncionarios();
-            mostrarNotificacao('Funcionário adicionado com sucesso!', 'sucesso');
-        } catch (error) {
-            console.error('Erro ao adicionar funcionário:', error);
-            mostrarNotificacao('Erro ao adicionar funcionário.', 'erro');
-        }
-    }
+        const newFunc = { nome, user, pass, admin: false };
+        await addDoc(collection(db, 'funcionarios'), newFunc);
+        document.getElementById('funcNome').value = '';
+        document.getElementById('funcUser').value = '';
+        document.getElementById('funcPass').value = '';
+        await renderizarFuncionarios();
+        mostrarNotificacao('Funcionário adicionado com sucesso!', 'sucesso');
+    };
 
     async function renderizarFuncionarios() {
-        try {
-            const funcs = await getFuncionarios();
-            const div = document.getElementById('listaFuncionarios');
-            div.innerHTML = '';
-            funcs.forEach(f => {
-                const adminText = f.admin ? ' - Admin' : '';
-                const removeBtn = f.admin ? '' : `<button class="btn-top btn-danger btn-small" onclick="removerFuncionario('${f.id}')">Remover</button>`;
-                div.insertAdjacentHTML('beforeend', `
-                    <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
-                        <span>${escapeHTML(f.nome)} (${f.user})${adminText}</span>
-                        ${removeBtn}
-                    </div>
-                `);
-            });
-            if (!funcs.length) div.innerHTML = '<p>Nenhum funcionário cadastrado.</p>';
-        } catch (error) {
-            console.error('Erro ao renderizar funcionários:', error);
-        }
+        const funcs = await getFuncionarios();
+        const div = document.getElementById('listaFuncionarios');
+        div.innerHTML = '';
+        funcs.forEach(f => {
+            const adminText = f.admin ? ' - Admin' : '';
+            const removeBtn = f.admin ? '' : `<button class="btn-top btn-danger btn-small" onclick="removerFuncionario('${f.id}')">Remover</button>`;
+            div.insertAdjacentHTML('beforeend', `
+                <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>${escapeHTML(f.nome)} (${f.user})${adminText}</span>
+                    ${removeBtn}
+                </div>
+            `);
+        });
+        if (!funcs.length) div.innerHTML = '<p>Nenhum funcionário cadastrado.</p>';
     }
 
-    async function removerFuncionario(id) {
+    window.removerFuncionario = async function(id) {
         if (!window.usuarioLogado?.admin) {
             mostrarNotificacao('Acesso negado.', 'erro');
             return;
         }
         if (!confirm('Remover funcionário?')) return;
-        try {
-            await deleteDoc(doc(db, 'funcionarios', id));
-            await renderizarFuncionarios();
-            mostrarNotificacao('Funcionário removido com sucesso!', 'sucesso');
-        } catch (error) {
-            console.error('Erro ao remover funcionário:', error);
-            mostrarNotificacao('Erro ao remover funcionário.', 'erro');
-        }
+        await deleteDoc(doc(db, 'funcionarios', id));
+        await renderizarFuncionarios();
+        mostrarNotificacao('Funcionário removido', 'sucesso');
+    };
+
+    async function filtrarModal() {
+        const term = removerAcentos(document.getElementById('searchModalInput').value.toLowerCase());
+        const lista = await getData();
+        const div = document.getElementById('modalResults');
+        div.innerHTML = '';
+        lista
+            .filter(a => {
+                const nome = removerAcentos((a.nome || '').toLowerCase());
+                const cpf = (a.cpf || '').replace(/\D/g, '');
+                return nome.includes(term) || cpf.includes(term.replace(/\D/g, ''));
+            })
+            .forEach(a => {
+                const removeBtn = window.usuarioLogado?.admin ? `<button class="btn-top btn-danger btn-small" onclick="removerCooperado('${a.id}', event)">Remover</button>` : '';
+                div.insertAdjacentHTML('beforeend', `
+                    <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
+                        <div onclick="editAssociado('${a.id}')" style="flex:1;cursor:pointer;">
+                            <span>${escapeHTML(a.nome)}</span>
+                            <small>CPF: ${a.cpf || '—'} | Nº da Pasta: ${a.pasta || '—'}</small>
+                        </div>
+                        ${removeBtn}
+                    </div>
+                `);
+            });
+        if (!div.innerHTML) div.innerHTML = '<p>Nenhum resultado.</p>';
     }
 
-    async function removerCooperado(id, event) {
+    window.debouncedFilter = debounce(filtrarModal, 300);
+
+    window.removerCooperado = async function(id, event) {
         event.stopPropagation();
         if (!confirm('Confirma remoção deste cooperado?')) return;
         const item = event.target.closest('.list-item');
         if (item) item.classList.add('fade-out');
-        try {
-            await deleteDoc(doc(db, 'associados', id));
-            setTimeout(() => {
-                filtrarModal();
-            }, 400);
-            mostrarNotificacao('Cooperado removido com sucesso!', 'sucesso');
-        } catch (error) {
-            console.error('Erro ao remover cooperado:', error);
-            mostrarNotificacao('Erro ao remover cooperado.', 'erro');
-        }
-    }
+        await deleteDoc(doc(db, 'associados', id));
+        setTimeout(() => {
+            filtrarModal();
+            mostrarNotificacao('Cooperado removido', 'sucesso');
+        }, 400);
+    };
 
-    function removerAcentos(str) {
-        return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    }
-
-    window.deps = [];
-
-    function addDependente() {
+    window.addDependente = function() {
         window.deps.push({ nome: '', parent: '', nasc: '', cpf: '', plano: '' });
         renderDeps();
-    }
+    };
 
-    function renderDeps() {
+    window.renderDeps = function() {
         const div = document.getElementById('depsList');
         div.innerHTML = '';
         window.deps.forEach((d, i) => {
             div.insertAdjacentHTML('beforeend', `
-                <div class="row" style="align-items:end;">
+                <div class="row" style="align-items:end;margin-bottom:1rem;padding:1rem;background:var(--azul-claro);border-radius:8px;">
                     <div class="col"><label>Nome</label><input value="${escapeHTML(d.nome)}" onchange="window.deps[${i}].nome=this.value"></div>
                     <div class="col"><label>Parentesco</label><input value="${escapeHTML(d.parent)}" onchange="window.deps[${i}].parent=this.value"></div>
                     <div class="col"><label>Nasc.</label><input type="date" value="${d.nasc}" onchange="window.deps[${i}].nasc=this.value"></div>
@@ -1019,7 +1015,7 @@
                 </div>
             `);
         });
-    }
+    };
 
     async function buildResumo() {
         const r = document.getElementById('resumoContent');
@@ -1030,176 +1026,157 @@
             r.innerHTML = '<p>Selecione ou crie um cooperado para ver o resumo.</p>';
             return;
         }
-        try {
-            const docSnap = await getDoc(doc(db, 'associados', editId));
-            if (!docSnap.exists()) {
-                r.innerHTML = '<p>Cooperado não encontrado.</p>';
-                return;
-            }
-            const a = docSnap.data();
+        const docSnap = await getDoc(doc(db, 'associados', editId));
+        if (!docSnap.exists()) {
+            r.innerHTML = '<p>Cooperado não encontrado.</p>';
+            return;
+        }
+        const a = docSnap.data();
 
-            const nome = a.nome || '—';
-            const cpf = a.cpf || '—';
-            const planoTit = a.plano;
-            const valorTit = valorPlano(planoTit);
-            r.insertAdjacentHTML('beforeend', `
-                <div class="resumo-block">
-                    <h3>Titular</h3>
-                    <div class="resumo-line"><span>Nome:</span><span>${escapeHTML(nome)}</span></div>
-                    <div class="resumo-line"><span>CPF:</span><span>${cpf}</span></div>
-                    <div class="resumo-line"><span>Plano:</span><span>${planoTit || '—'} - R$ ${valorTit.toFixed(2)}</span></div>
-                </div>
-            `);
+        const nome = a.nome || '—';
+        const cpf = a.cpf || '—';
+        const planoTit = a.plano;
+        const valorTit = valorPlano(planoTit);
+        r.insertAdjacentHTML('beforeend', `
+            <div class="resumo-block">
+                <h3>Titular</h3>
+                <div class="resumo-line"><span>Nome:</span><span>${escapeHTML(nome)}</span></div>
+                <div class="resumo-line"><span>CPF:</span><span>${cpf}</span></div>
+                <div class="resumo-line"><span>Plano:</span><span>${planoTit || '—'} - R$ ${valorTit.toFixed(2)}</span></div>
+            </div>
+        `);
 
-            let total = valorTit;
-            if (a.dependentes && a.dependentes.length) {
-                r.insertAdjacentHTML('beforeend', '<h3>Dependentes</h3>');
-                a.dependentes.forEach(d => {
-                    const v = valorPlano(d.plano);
-                    total += v;
-                    r.insertAdjacentHTML('beforeend', `
-                        <div class="resumo-line">
-                            <span>${escapeHTML(d.nome || '—')} (${escapeHTML(d.parent || '—')}) - CPF: ${d.cpf || '—'} - Plano: ${d.plano || '—'}</span>
-                            <span>R$ ${v.toFixed(2)}</span>
-                        </div>
-                    `);
-                });
-            }
-
-            const conj = a.conjuge || {};
-            const conjNome = conj.nome || '';
-            const conjCpf = conj.cpf || '—';
-            const conjNasc = conj.nasc || '—';
-            const conjPlano = conj.plano;
-            const conjValor = valorPlano(conjPlano);
-            if (conjNome) {
-                r.insertAdjacentHTML('beforeend', '<h3>Cônjuge</h3>');
+        let total = valorTit;
+        if (a.dependentes && a.dependentes.length) {
+            r.insertAdjacentHTML('beforeend', '<h3>Dependentes</h3>');
+            a.dependentes.forEach(d => {
+                const v = valorPlano(d.plano);
+                total += v;
                 r.insertAdjacentHTML('beforeend', `
                     <div class="resumo-line">
-                        <span>${escapeHTML(conjNome)} - CPF: ${conjCpf} - Nasc: ${conjNasc} - Plano: ${conjPlano || '—'}</span>
-                        <span>R$ ${conjValor.toFixed(2)}</span>
+                        <span>${escapeHTML(d.nome || '—')} (${escapeHTML(d.parent || '—')}) - CPF: ${d.cpf || '—'} - Plano: ${d.plano || '—'}</span>
+                        <span>R$ ${v.toFixed(2)}</span>
                     </div>
                 `);
-                total += conjValor;
-            }
-
-            let months = 0;
-            let totalPaid = 0;
-            if (a.dataAssociacao) {
-                const joinDate = new Date(a.dataAssociacao);
-                const now = new Date();
-                months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth());
-                if (now.getDate() < joinDate.getDate()) months--;
-                months = Math.max(months, 0);
-                totalPaid = months * total;
-                r.insertAdjacentHTML('beforeend', `
-                    <div class="resumo-block">
-                        <h3>Histórico</h3>
-                        <div class="resumo-line"><span>Data de Associação:</span><span>${a.dataAssociacao}</span></div>
-                        <div class="resumo-line"><span>Meses Cooperado:</span><span>${months}</span></div>
-                        <div class="resumo-line"><span>Total Pago (estimado):</span><span>R$ ${totalPaid.toFixed(2)}</span></div>
-                    </div>
-                `);
-            } else {
-                r.insertAdjacentHTML('beforeend', `
-                    <div class="resumo-block">
-                        <h3>Histórico</h3>
-                        <p>Data de Associação não informada.</p>
-                    </div>
-                `);
-            }
-
-            let pend = [];
-            if (!a.cpf) pend.push('CPF do titular faltando');
-            if (!a.nasc) pend.push('Data de nascimento do titular faltando');
-            a.dependentes?.forEach((d, i) => {
-                if (d.nome) {
-                    if (!d.cpf) pend.push(`CPF do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
-                    if (!d.nasc) pend.push(`Data de nascimento do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
-                }
             });
-            if (conjNome) {
-                if (!conj.cpf) pend.push('CPF do cônjuge faltando');
-                if (!conj.nasc) pend.push('Data de nascimento do cônjuge faltando');
-            }
-            if (pend.length) {
-                r.insertAdjacentHTML('beforeend', `
-                    <div class="resumo-block">
-                        <h3>Pendências</h3>
-                        <ul>${pend.map(p => `<li>${p}</li>`).join('')}</ul>
-                    </div>
-                `);
-            }
-
-            r.insertAdjacentHTML('beforeend', `
-                <div class="total">Total Mensal: R$ ${total.toFixed(2)}</div>
-            `);
-        } catch (error) {
-            console.error('Erro ao construir resumo:', error);
-            r.innerHTML = '<p>Erro ao carregar resumo.</p>';
         }
+
+        const conj = a.conjuge || {};
+        const conjNome = conj.nome || '';
+        const conjCpf = conj.cpf || '—';
+        const conjNasc = conj.nasc || '—';
+        const conjPlano = conj.plano;
+        const conjValor = valorPlano(conjPlano);
+        if (conjNome) {
+            r.insertAdjacentHTML('beforeend', '<h3>Cônjuge</h3>');
+            r.insertAdjacentHTML('beforeend', `
+                <div class="resumo-line">
+                    <span>${escapeHTML(conjNome)} - CPF: ${conjCpf} - Nasc: ${conjNasc} - Plano: ${conjPlano || '—'}</span>
+                    <span>R$ ${conjValor.toFixed(2)}</span>
+                </div>
+            `);
+            total += conjValor;
+        }
+
+        let months = 0;
+        let totalPaid = 0;
+        if (a.dataAssociacao) {
+            const joinDate = new Date(a.dataAssociacao);
+            const now = new Date();
+            months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth());
+            if (now.getDate() < joinDate.getDate()) months--;
+            months = Math.max(months, 0);
+            totalPaid = months * total;
+            r.insertAdjacentHTML('beforeend', `
+                <div class="resumo-block">
+                    <h3>Histórico</h3>
+                    <div class="resumo-line"><span>Data de Associação:</span><span>${a.dataAssociacao}</span></div>
+                    <div class="resumo-line"><span>Meses Cooperado:</span><span>${months}</span></div>
+                    <div class="resumo-line"><span>Total Pago (estimado):</span><span>R$ ${totalPaid.toFixed(2)}</span></div>
+                </div>
+            `);
+        } else {
+            r.insertAdjacentHTML('beforeend', `
+                <div class="resumo-block">
+                    <h3>Histórico</h3>
+                    <p>Data de Associação não informada.</p>
+                </div>
+            `);
+        }
+
+        let pend = [];
+        if (!a.cpf) pend.push('CPF do titular faltando');
+        if (!a.nasc) pend.push('Data de nascimento do titular faltando');
+        a.dependentes?.forEach((d, i) => {
+            if (d.nome) {
+                if (!d.cpf) pend.push(`CPF do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
+                if (!d.nasc) pend.push(`Data de nascimento do dependente ${i+1} (${escapeHTML(d.nome)}) faltando`);
+            }
+        });
+        if (conjNome) {
+            if (!conj.cpf) pend.push('CPF do cônjuge faltando');
+            if (!conj.nasc) pend.push('Data de nascimento do cônjuge faltando');
+        }
+        if (pend.length) {
+            r.insertAdjacentHTML('beforeend', `
+                <div class="resumo-block">
+                    <h3>Pendências</h3>
+                    <ul>${pend.map(p => `<li>${p}</li>`).join('')}</ul>
+                </div>
+            `);
+        }
+
+        r.insertAdjacentHTML('beforeend', `
+            <div class="total">Total Mensal: R$ ${total.toFixed(2)}</div>
+        `);
     }
 
-    async function abrirResumoGeral() {
+    window.abrirResumoGeral = async function() {
         if (!window.usuarioLogado?.admin) {
             mostrarNotificacao('Acesso negado. Apenas administradores podem acessar o resumo geral.', 'erro');
             return;
         }
         document.getElementById('modalResumoGeral').classList.add('active');
         await buildResumoGeral();
-    }
+    };
 
-    function fecharResumoGeral() {
+    window.fecharResumoGeral = function() {
         document.getElementById('modalResumoGeral').classList.remove('active');
-    }
+    };
 
     async function buildResumoGeral() {
         const r = document.getElementById('resumoGeralContent');
         r.innerHTML = '<h2>Resumo Geral - CBSaúde Cooperados</h2>';
 
-        try {
-            const lista = await getData();
-            let totalGeral = 0;
-            let countCooperados = lista.length;
+        const lista = await getData();
+        let totalGeral = 0;
+        let countCooperados = lista.length;
 
-            for (const a of lista) {
-                let totalIndividual = valorPlano(a.plano);
-                a.dependentes?.forEach(d => totalIndividual += valorPlano(d.plano));
-                if (a.conjuge?.nome) totalIndividual += valorPlano(a.conjuge.plano);
-                totalGeral += totalIndividual;
+        for (const a of lista) {
+            let totalIndividual = valorPlano(a.plano);
+            a.dependentes?.forEach(d => totalIndividual += valorPlano(d.plano));
+            if (a.conjuge?.nome) totalIndividual += valorPlano(a.conjuge.plano);
+            totalGeral += totalIndividual;
 
-                const obs = a.obs ? `<p>Observações: ${escapeHTML(a.obs)}</p>` : '';
-
-                r.insertAdjacentHTML('beforeend', `
-                    <div class="resumo-block">
-                        <h3>${escapeHTML(a.nome)}</h3>
-                        <div class="resumo-line"><span>CPF:</span><span>${a.cpf || '—'}</span></div>
-                        <div class="resumo-line"><span>Total Mensal:</span><span>R$ ${totalIndividual.toFixed(2)}</span></div>
-                        ${obs}
-                    </div>
-                `);
-            }
+            const obs = a.obs ? `<p><em>Observações: ${escapeHTML(a.obs)}</em></p>` : '';
 
             r.insertAdjacentHTML('beforeend', `
                 <div class="resumo-block">
-                    <h3>Totais</h3>
-                    <div class="resumo-line"><span>Número de Cooperados:</span><span>${countCooperados}</span></div>
-                    <div class="total">Total Geral Mensal: R$ ${totalGeral.toFixed(2)}</div>
+                    <h3>${escapeHTML(a.nome)}</h3>
+                    <div class="resumo-line"><span>CPF:</span><span>${a.cpf || '—'}</span></div>
+                    <div class="resumo-line"><span>Total Mensal:</span><span>R$ ${totalIndividual.toFixed(2)}</span></div>
+                    ${obs}
                 </div>
             `);
-        } catch (error) {
-            console.error('Erro ao construir resumo geral:', error);
-            r.innerHTML += '<p>Erro ao carregar resumo geral.</p>';
         }
-    }
 
-    function valorPlano(cod) {
-        switch (cod) {
-            case '224': return 20;
-            case '226': return 115;
-            case '228': return 155;
-            default: return 0;
-        }
+        r.insertAdjacentHTML('beforeend', `
+            <div class="resumo-block">
+                <h3>Totais</h3>
+                <div class="resumo-line"><span>Número de Cooperados:</span><span>${countCooperados}</span></div>
+                <div class="total">Total Geral Mensal: R$ ${totalGeral.toFixed(2)}</div>
+            </div>
+        `);
     }
 
     function resetAll() {
@@ -1209,68 +1186,62 @@
         renderDeps();
     }
 
-    async function editAssociado(id) {
-        try {
-            const docSnap = await getDoc(doc(db, 'associados', id));
-            if (docSnap.exists()) {
-                const a = docSnap.data();
-                document.getElementById('editIndex').value = id;
+    window.editAssociado = async function(id) {
+        const docSnap = await getDoc(doc(db, 'associados', id));
+        if (docSnap.exists()) {
+            const a = docSnap.data();
+            document.getElementById('editIndex').value = id;
 
-                // Preencher campos principais (excluindo dependentes e conjuge)
-                Object.keys(a).forEach(k => {
-                    if (k !== 'id' && k !== 'dependentes' && k !== 'conjuge') {
-                        const el = document.getElementById(k);
-                        if (el) el.value = a[k] || '';
-                    }
-                });
+            Object.keys(a).forEach(k => {
+                if (k !== 'id' && k !== 'dependentes' && k !== 'conjuge') {
+                    const el = document.getElementById(k);
+                    if (el) el.value = a[k] || '';
+                }
+            });
 
-                window.deps = a.dependentes || [];
-                renderDeps();
-                const conj = a.conjuge || {};
-                document.getElementById('conjNome').value = conj.nome || '';
-                document.getElementById('conjCpf').value = conj.cpf || '';
-                document.getElementById('conjNasc').value = conj.nasc || '';
-                document.getElementById('conjPlano').value = conj.plano || '';
+            window.deps = a.dependentes || [];
+            renderDeps();
+            const conj = a.conjuge || {};
+            document.getElementById('conjNome').value = conj.nome || '';
+            document.getElementById('conjCpf').value = conj.cpf || '';
+            document.getElementById('conjNasc').value = conj.nasc || '';
+            document.getElementById('conjPlano').value = conj.plano || '';
 
-                switchTab('dados');
-                fecharPesquisa();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-        } catch (error) {
-            console.error('Erro ao editar associado:', error);
-            mostrarNotificacao('Erro ao carregar dados.', 'erro');
+            switchTab('dados');
+            fecharPesquisa();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            mostrarNotificacao('Cooperado carregado para edição', 'info');
         }
-    }
+    };
 
-    // Salvar dados (associados na coleção 'associados')
-    async function saveAll(event) {
-        if (event) event.preventDefault();
+    window.saveAll = async function(event) {
+        event.preventDefault();
         const form = document.getElementById('associadoForm');
         const editId = document.getElementById('editIndex').value;
         
         const associado = {
             nome: form.nome.value.trim(),
-            cpf: form.cpf.value.trim(),
-            pasta: form.pasta.value.trim(),
-            matricula: form.matricula.value.trim(),
+            cpf: form.cpf.value,
+            pasta: form.pasta.value,
+            matricula: form.matricula.value,
             nasc: form.nasc.value,
             dataAssociacao: form.dataAssociacao.value,
             sexo: form.sexo.value,
             civil: form.civil.value,
-            endereco: form.endereco.value.trim(),
-            numero: form.numero.value.trim(),
-            bairro: form.bairro.value.trim(),
-            municipio: form.municipio.value.trim(),
-            estado: form.estado.value.trim(),
-            cep: form.cep.value.trim(),
-            telefone: form.telefone.value.trim(),
-            email: form.email.value.trim(),
+            endereco: form.endereco.value,
+            numero: form.numero.value,
+            bairro: form.bairro.value,
+            municipio: form.municipio.value,
+            estado: form.estado.value,
+            cep: form.cep.value,
+            telefone: form.telefone.value,
+            email: form.email.value,
             plano: form.plano.value,
-            obs: form.obs.value.trim(),
+            obs: form.obs.value,
             dependentes: window.deps,
             conjuge: {
-                nome: form.conjNome.value.trim(),
-                cpf: form.conjCpf.value.trim(),
+                nome: form.conjNome.value,
+                cpf: form.conjCpf.value,
                 nasc: form.conjNasc.value,
                 plano: form.conjPlano.value
             }
@@ -1299,39 +1270,26 @@
                 await addDoc(collection(db, 'associados'), associado);
             }
             resetAll();
-            mostrarNotificacao('Dados salvos com sucesso na coleção "associados"!', 'sucesso');
+            mostrarNotificacao('Dados salvos com sucesso!', 'sucesso');
         } catch (error) {
             console.error('Erro ao salvar:', error);
             mostrarNotificacao('Erro ao salvar os dados. Tente novamente.', 'erro');
         }
+    };
+
+    async function initAdmin() {
+        const funcs = await getFuncionarios();
+        if (!funcs.find(f => f.user === 'admin')) {
+            await addDoc(collection(db, 'funcionarios'), { nome: 'Administrador', user: 'admin', pass: '1234', admin: true });
+        }
     }
 
-    // Expor funções para escopo global
-    window.doLogin = doLogin;
-    window.doLogout = doLogout;
-    window.abrirPesquisa = abrirPesquisa;
-    window.fecharPesquisa = fecharPesquisa;
-    window.novo = novo;
-    window.gravar = gravar;
-    window.alterar = alterar;
-    window.imprimirPDF = imprimirPDF;
-    window.switchTab = switchTab;
-    window.addDependente = addDependente;
-    window.renderDeps = renderDeps;
-    window.adicionarFuncionario = adicionarFuncionario;
-    window.fecharGerenciaFuncionarios = fecharGerenciaFuncionarios;
-    window.abrirGerenciaFuncionarios = abrirGerenciaFuncionarios;
-    window.abrirResumoGeral = abrirResumoGeral;
-    window.fecharResumoGeral = fecharResumoGeral;
-    window.editAssociado = editAssociado;
-    window.removerCooperado = removerCooperado;
-    window.debouncedFilter = debouncedFilter;
-    window.saveAll = saveAll;
+    window.deps = [];
 
-    window.onload = () => {
+    window.onload = async () => {
+        await initAdmin();
         document.getElementById('userInput').focus();
 
-        // Formatação automática
         document.getElementById('cpf').addEventListener('blur', function() {
             this.value = formatarCPF(this.value);
             if (this.value && !validarCPF(this.value)) {
@@ -1352,9 +1310,12 @@
                 this.focus();
             }
         });
-
-        // Event listener para o botão de login
-        document.getElementById('btnLogin').addEventListener('click', doLogin);
+        
+        document.getElementById('passInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                doLogin();
+            }
+        });
     };
 </script>
 </body>
