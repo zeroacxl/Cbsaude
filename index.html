@@ -740,7 +740,36 @@
         };
     }
 
-    const debouncedFilter = debounce(filtrarModal, 300);
+    let filtrarModal = null;
+    let debouncedFilter = null;
+    async function _filtrarModal() {
+        const term = removerAcentos(document.getElementById('searchModalInput').value.toLowerCase());
+        const lista = await getData();
+        const div = document.getElementById('modalResults');
+        div.innerHTML = '';
+        lista
+            .filter(a => {
+                const nome = removerAcentos(a.nome.toLowerCase());
+                const cpf = a.cpf.replace(/\D/g, '');
+                return nome.includes(term) || cpf.includes(term.replace(/\D/g, ''));
+            })
+            .forEach(a => {
+                const removeBtn = window.usuarioLogado?.admin ? `<button class="btn-top btn-danger btn-small" onclick="removerCooperado('${a.id}', event)">Remover</button>` : '';
+                div.insertAdjacentHTML('beforeend', `
+                    <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
+                        <div onclick="editAssociado('${a.id}')">
+                            <span>${escapeHTML(a.nome)}</span>
+                            <small>CPF: ${a.cpf || '—'} | Nº da Pasta: ${a.pasta || '—'}</small>
+                        </div>
+                        ${removeBtn}
+                    </div>
+                `);
+            });
+        if (!div.innerHTML) div.innerHTML = '<p>Nenhum resultado.</p>';
+    }
+
+    filtrarModal = _filtrarModal;
+    debouncedFilter = debounce(filtrarModal, 300);
 
     async function doLogin() {
         const btnLogin = document.querySelector('button[onclick="doLogin()"]');
@@ -900,32 +929,6 @@
         if (!confirm('Remover funcionário?')) return;
         await deleteDoc(doc(db, 'funcionarios', id));
         await renderizarFuncionarios();
-    }
-
-    async function filtrarModal() {
-        const term = removerAcentos(document.getElementById('searchModalInput').value.toLowerCase());
-        const lista = await getData();
-        const div = document.getElementById('modalResults');
-        div.innerHTML = '';
-        lista
-            .filter(a => {
-                const nome = removerAcentos(a.nome.toLowerCase());
-                const cpf = a.cpf.replace(/\D/g, '');
-                return nome.includes(term) || cpf.includes(term.replace(/\D/g, ''));
-            })
-            .forEach(a => {
-                const removeBtn = window.usuarioLogado?.admin ? `<button class="btn-top btn-danger btn-small" onclick="removerCooperado('${a.id}', event)">Remover</button>` : '';
-                div.insertAdjacentHTML('beforeend', `
-                    <div class="list-item" style="display:flex;justify-content:space-between;align-items:center;">
-                        <div onclick="editAssociado('${a.id}')">
-                            <span>${escapeHTML(a.nome)}</span>
-                            <small>CPF: ${a.cpf || '—'} | Nº da Pasta: ${a.pasta || '—'}</small>
-                        </div>
-                        ${removeBtn}
-                    </div>
-                `);
-            });
-        if (!div.innerHTML) div.innerHTML = '<p>Nenhum resultado.</p>';
     }
 
     async function removerCooperado(id, event) {
@@ -1180,7 +1183,7 @@
 
     // Salvar dados
     async function saveAll(event) {
-        event.preventDefault();
+        if (event) event.preventDefault();
         const form = document.getElementById('associadoForm');
         const editId = document.getElementById('editIndex').value;
         
@@ -1251,6 +1254,27 @@
     }
 
     window.deps = [];
+
+    // Expor funções para escopo global
+    window.doLogin = doLogin;
+    window.doLogout = doLogout;
+    window.abrirPesquisa = abrirPesquisa;
+    window.fecharPesquisa = fecharPesquisa;
+    window.novo = novo;
+    window.gravar = gravar;
+    window.alterar = alterar;
+    window.imprimirPDF = imprimirPDF;
+    window.switchTab = switchTab;
+    window.addDependente = addDependente;
+    window.adicionarFuncionario = adicionarFuncionario;
+    window.fecharGerenciaFuncionarios = fecharGerenciaFuncionarios;
+    window.abrirGerenciaFuncionarios = abrirGerenciaFuncionarios;
+    window.abrirResumoGeral = abrirResumoGeral;
+    window.fecharResumoGeral = fecharResumoGeral;
+    window.editAssociado = editAssociado;
+    window.removerCooperado = removerCooperado;
+    window.debouncedFilter = debouncedFilter;
+    window.saveAll = saveAll;
 
     window.onload = async () => {
         await initAdmin();
