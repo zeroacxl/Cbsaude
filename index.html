@@ -1,145 +1,178 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>CBSaúde Cooperados</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <meta charset="UTF-8">
+    <title>CBSaúde Cooperados</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
 </head>
 <body>
-  <!-- TELA DE LOGIN -->
-  <section id="loginScreen">
-    <div class="card">
-      <h2>CBSaúde - Login</h2>
-      <input id="userInput" type="text" placeholder="admin">
-      <input id="passInput" type="password" placeholder="1234">
-      <button id="btnEntrar">Entrar</button>
-      <small>Login master: admin / 1234</small>
+    <!-- TELA DE LOGIN -->
+    <section id="loginScreen" class="container login-box">
+        <div class="card" style="max-width:400px;margin:10vh auto; animation: scaleIn 0.6s ease-out;">
+            <h2>CBSaúde - Login</h2>
+            <label>Usuário</label>
+            <input id="userInput" type="text" placeholder="admin">
+            <label>Senha</label>
+            <input id="passInput" type="password" placeholder="1234">
+            <button class="btn-top" onclick="doLogin()">Entrar</button>
+            <p style="color:#666;font-size:.8rem;margin-top:.8rem;">Login master: admin / 1234</p>
+        </div>
+    </section>
+
+    <!-- ÁREA PRINCIPAL -->
+    <section id="mainApp" class="hidden">
+        <!-- TOPO COM BOTÕES -->
+        <div class="top-bar">
+            <h1>CBSaúde Cooperados</h1>
+            <button class="btn-top" onclick="abrirPesquisa()">Procurar</button>
+            <button class="btn-top" onclick="alterar()">Alterar</button>
+            <button class="btn-top" onclick="gravar()">Gravar</button>
+            <button class="btn-top" onclick="novo()">Novo</button>
+            <button class="btn-top imprimir" onclick="imprimirPDF()">PDF</button>
+            <button class="btn-top hidden" onclick="abrirGerenciaFuncionarios()" id="btnGerencia">Gerenciar Funcionários</button>
+            <button class="btn-top sair" onclick="doLogout()">Sair</button>
+        </div>
+
+        <div class="container">
+            <div class="card">
+                <form id="associadoForm" onsubmit="saveAll(event)">
+                    <input id="editIndex" type="hidden">
+
+                    <!-- ABAS RESPONSIVAS -->
+                    <div class="tabs-wrapper">
+                        <div class="tabs">
+                            <div class="tab active" onclick="switchTab('dados')">Dados Pessoais</div>
+                            <div class="tab" onclick="switchTab('dependentes')">Dependentes</div>
+                            <div class="tab" onclick="switchTab('conjuge')">Cônjuge</div>
+                            <div class="tab" onclick="switchTab('resumo')">Resumo</div>
+                        </div>
+                    </div>
+
+                    <!-- CONTEÚDO DAS ABAS -->
+                    <div id="dados" class="tabContent active">
+                        <h3>Dados Pessoais</h3>
+                        <div class="row">
+                            <div class="col"><label>Nome *</label><input id="nome" required></div>
+                            <div class="col"><label>CPF *</label><input id="cpf" required></div>
+                            <div class="col"><label>Nº da Pasta</label><input id="pasta"></div>
+                            <div class="col"><label>Matrícula</label><input id="matricula"></div>
+                        </div>
+                        <div class="row">
+                            <div class="col"><label>Data Nasc.</label><input id="nasc" type="date"></div>
+                            <div class="col"><label>Data Associação</label><input id="dataAssociacao" type="date"></div>
+                            <div class="col"><label>Sexo</label>
+                                <select id="sexo">
+                                    <option>Masculino</option>
+                                    <option>Feminino</option>
+                                    <option>Não-binário</option>
+                                    <option>Trans</option>
+                                </select>
+                            </div>
+                            <div class="col"><label>Estado Civil</label>
+                                <select id="civil">
+                                    <option>Solteiro(a)</option><option>Casado(a)</option><option>Divorciado(a)</option><option>Viúvo(a)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col"><label>Endereço</label><input id="endereco"></div>
+                            <div class="col"><label>Número</label><input id="numero"></div>
+                            <div class="col"><label>Bairro</label><input id="bairro"></div>
+                            <div class="col"><label>Município</label><input id="municipio"></div>
+                        </div>
+                        <div class="row">
+                            <div class="col"><label>Estado</label><input id="estado" maxlength="2"></div>
+                            <div class="col"><label>CEP</label><input id="cep"></div>
+                            <div class="col"><label>Telefone</label><input id="telefone"></div>
+                            <div class="col"><label>E-mail</label><input id="email" type="email"></div>
+                        </div>
+                        <div class="row">
+                            <div class="col"><label>Plano</label>
+                                <select id="plano">
+                                    <option value="224">Alfa (224)</option>
+                                    <option value="226">Bravo (226)</option>
+                                    <option value="228">Delta (228)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col"><label>Observações</label><textarea id="obs"></textarea></div>
+                        </div>
+                        <small>* Campos obrigatórios apenas para o titular. Dependentes e cônjuge podem ser salvos parcialmente.</small>
+                    </div>
+
+                    <div id="dependentes" class="tabContent">
+                        <h3>Dependentes</h3>
+                        <div id="depsList"></div>
+                        <button type="button" class="btn-top" onclick="addDependente()">+ Dependente</button>
+                    </div>
+
+                    <div id="conjuge" class="tabContent">
+                        <h3>Cônjuge</h3>
+                        <div class="row">
+                            <div class="col"><label>Nome</label><input id="conjNome"></div>
+                            <div class="col"><label>CPF</label><input id="conjCpf"></div>
+                            <div class="col"><label>Data Nasc.</label><input id="conjNasc" type="date"></div>
+                            <div class="col"><label>Plano</label>
+                                <select id="conjPlano">
+                                    <option value="">Nenhum</option>
+                                    <option value="224">Alfa (224)</option>
+                                    <option value="226">Bravo (226)</option>
+                                    <option value="228">Delta (228)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="resumo" class="tabContent">
+                        <h3>Resumo Geral</h3>
+                        <div id="resumoContent"></div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- MODAL PESQUISA -->
+    <div id="modalPesquisa" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Pesquisar Cooperado</span>
+                <button class="btn-top" onclick="fecharPesquisa()">✖</button>
+            </div>
+            <div class="modal-body">
+                <input class="search-input" id="searchModalInput" placeholder="Digite nome ou CPF..." onkeyup="filtrarModal()">
+                <div id="modalResults"></div>
+            </div>
+        </div>
     </div>
-  </section>
 
-  <!-- ÁREA PRINCIPAL -->
-  <section id="mainApp" class="hidden">
-    <div class="top-bar">
-      <h1>CBSaúde Cooperados</h1>
-      <button id="btnPesquisar">Pesquisar</button>
-      <button id="btnNovo">Novo</button>
-      <button id="btnPDF">PDF</button>
-      <button id="btnSair">Sair</button>
+    <!-- MODAL GERENCIAR FUNCIONÁRIOS (só admin) -->
+    <div id="modalFuncionarios" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Gerenciar Funcionários</span>
+                <button class="btn-top" onclick="fecharGerenciaFuncionarios()">✖</button>
+            </div>
+            <div class="modal-body">
+                <h4>Adicionar Funcionário</h4>
+                <div class="row">
+                    <div class="col"><label>Nome</label><input id="funcNome"></div>
+                    <div class="col"><label>Usuário</label><input id="funcUser"></div>
+                    <div class="col"><label>Senha</label><input id="funcPass" type="password"></div>
+                </div>
+                <button class="btn-top" onclick="adicionarFuncionario()">Adicionar</button>
+                <hr>
+                <h4>Funcionários Cadastrados</h4>
+                <div id="listaFuncionarios"></div>
+            </div>
+        </div>
     </div>
 
-    <div class="container">
-      <div class="card">
-        <form id="formAssociado">
-          <input type="hidden" id="editIndex">
-
-          <div class="tabs">
-            <button type="button" class="tab active" data-tab="dados">Dados</button>
-            <button type="button" class="tab" data-tab="dependentes">Dependentes</button>
-            <button type="button" class="tab" data-tab="conjuge">Cônjuge</button>
-            <button type="button" class="tab" data-tab="resumo">Resumo</button>
-          </div>
-
-          <!-- ABA DADOS -->
-          <div id="dados" class="tabContent active">
-            <h3>Dados Pessoais</h3>
-            <div class="row">
-              <div class="col"><label>Nome *</label><input id="nome" required></div>
-              <div class="col"><label>CPF *</label><input id="cpf" required></div>
-              <div class="col"><label>Nº da Pasta</label><input id="pasta"></div>
-              <div class="col"><label>Matrícula</label><input id="matricula"></div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Data Nasc.</label><input id="nasc" type="date"></div>
-              <div class="col"><label>Data Associação</label><input id="dataAssociacao" type="date"></div>
-              <div class="col"><label>Sexo</label>
-                <select id="sexo"><option>Masculino</option><option>Feminino</option><option>Não-binário</option><option>Trans</option></select>
-              </div>
-              <div class="col"><label>Estado Civil</label>
-                <select id="civil"><option>Solteiro(a)</option><option>Casado(a)</option><option>Divorciado(a)</option><option>Viúvo(a)</option></select>
-              </div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Endereço</label><input id="endereco"></div>
-              <div class="col"><label>Número</label><input id="numero"></div>
-              <div class="col"><label>Bairro</label><input id="bairro"></div>
-              <div class="col"><label>Município</label><input id="municipio"></div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Estado</label><input id="estado" maxlength="2"></div>
-              <div class="col"><label>CEP</label><input id="cep"></div>
-              <div class="col"><label>Telefone</label><input id="telefone"></div>
-              <div class="col"><label>E-mail</label><input id="email" type="email"></div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Plano</label>
-                <select id="plano">
-                  <option value="224">Alfa (224)</option>
-                  <option value="226">Bravo (226)</option>
-                  <option value="228">Delta (228)</option>
-                </select>
-              </div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Observações</label><textarea id="obs"></textarea></div>
-            </div>
-          </div>
-
-          <!-- ABA DEPENDENTES -->
-          <div id="dependentes" class="tabContent">
-            <h3>Dependentes</h3>
-            <div id="depsList"></div>
-            <button type="button" id="btnAddDep">+ Dependente</button>
-          </div>
-
-          <!-- ABA CÔNJUGE -->
-          <div id="conjuge" class="tabContent">
-            <h3>Cônjuge</h3>
-            <div class="row">
-              <div class="col"><label>Nome</label><input id="conjNome"></div>
-              <div class="col"><label>CPF</label><input id="conjCpf"></div>
-              <div class="col"><label>Data Nasc.</label><input id="conjNasc" type="date"></div>
-              <div class="col"><label>Plano</label>
-                <select id="conjPlano">
-                  <option value="">Nenhum</option>
-                  <option value="224">Alfa (224)</option>
-                  <option value="226">Bravo (226)</option>
-                  <option value="228">Delta (228)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- ABA RESUMO -->
-          <div id="resumo" class="tabContent">
-            <h3>Resumo Individual</h3>
-            <div id="resumoContent"></div>
-          </div>
-
-          <button type="submit" class="btn-top">Salvar</button>
-        </form>
-      </div>
-    </div>
-  </section>
-
-  <!-- MODAL PESQUISA -->
-  <div id="modalPesquisa" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <span>Pesquisar Cooperado</span>
-        <button type="button" onclick="fecharPesquisa()">✖</button>
-      </div>
-      <div class="modal-body">
-        <input class="search-input" id="searchModalInput" placeholder="Digite nome ou CPF..." onkeyup="filtrarModal()">
-        <div id="modalResults"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Scripts -->
-  <script type="module" src="firebase-config.js"></script>
-  <script type="module" src="firebase-init.js"></script>
-  <script type="module" src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
