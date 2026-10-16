@@ -983,7 +983,7 @@
                     <h3>Dados Pessoais</h3>
                     <div class="row">
                         <div class="col"><label>Nome *</label><input id="nome" required></div>
-                        <div class="col"><label>CPF *</label><input id="cpf" required></div>
+                        <div class="col"><label>CPF *</label><input id="cpf" required maxlength="14" placeholder="000.000.000-00"></div>
                         <div class="col"><label>Nº da Pasta</label><input id="pasta"></div>
                         <div class="col"><label>Matrícula</label><input id="matricula"></div>
                     </div>
@@ -1004,6 +1004,7 @@
                             </select>
                         </div>
                         <div class="col"><label>Data de Associação</label><input id="dataAssociacao" type="date"></div>
+                        <div class="col"><label>Data de Saída/Desligamento (opcional)</label><input id="dataDesligamento" type="date"></div>
                         <div class="col"><label>Data Nasc.</label><input id="nasc" type="date"></div>
                     </div>
                     <div class="row">
@@ -1061,7 +1062,7 @@
                     <h3>Cônjuge</h3>
                     <div class="row">
                         <div class="col"><label>Nome</label><input id="conjNome"></div>
-                        <div class="col"><label>CPF</label><input id="conjCpf"></div>
+                        <div class="col"><label>CPF</label><input id="conjCpf" maxlength="14" placeholder="000.000.000-00"></div>
                         <div class="col"><label>Data Nasc.</label><input id="conjNasc" type="date"></div>
                         <div class="col"><label>Plano</label>
                             <select id="conjPlano">
@@ -1338,22 +1339,140 @@
             default: return 'Desconhecido';
          }
     }
-    
+
+    // ---------- TEMPO NA COOPERATIVA E FASE DE CARÊNCIA (1 ANO) ----------
+
+    const CARENCIA_ANOS = 1; // A fase de carência é de 1 ano
+
+    // Converte 'YYYY-MM-DD' ou 'DD/MM/YYYY' em Date local (ou null se inválido)
+    function parseDataLocal(str) {
+        if (!str || typeof str !== 'string') return null;
+        let y, m, d;
+        let parts = str.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (parts) {
+            y = +parts[1]; m = +parts[2]; d = +parts[3];
+        } else {
+            parts = str.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (!parts) return null;
+            d = +parts[1]; m = +parts[2]; y = +parts[3];
+        }
+        const date = new Date(y, m - 1, d);
+        if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+        return date;
+    }
+
+    // Formata um Date como DD/MM/AAAA
+    function formatarDataBR(date) {
+        if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        return `${dd}/${mm}/${date.getFullYear()}`;
+    }
+
+    // Soma anos a uma data, tratando 29/02 em ano não bissexto (trunca p/ 28/02)
+    function adicionarAnos(date, anos) {
+        const r = new Date(date.getFullYear() + anos, date.getMonth(), date.getDate());
+        if (r.getDate() !== date.getDate()) r.setDate(0); // ex.: 29/02/2024 + 1 ano -> 28/02/2025
+        return r;
+    }
+
+    // Diferença calendária entre duas datas em anos, meses e dias
+    function calcularTempo(dataInicio, dataFim) {
+        let fim = dataFim instanceof Date ? dataFim : (dataFim ? parseDataLocal(dataFim) : null);
+        if (!(fim) || isNaN(fim.getTime())) fim = new Date();
+        const ini = dataInicio instanceof Date ? dataInicio : parseDataLocal(dataInicio);
+        if (!ini || isNaN(ini.getTime())) return null;
+        if (fim < ini) fim = ini; // nunca retorna tempo negativo
+
+        let anos = fim.getFullYear() - ini.getFullYear();
+        let meses = fim.getMonth() - ini.getMonth();
+        let dias = fim.getDate() - ini.getDate();
+        if (dias < 0) {
+            meses -= 1;
+            dias += new Date(fim.getFullYear(), fim.getMonth(), 0).getDate(); // dias do mês anterior
+        }
+        if (meses < 0) {
+            anos -= 1;
+            meses += 12;
+        }
+        return { anos, meses, dias, dataInicio: ini, dataFim: fim };
+    }
+
+    // "4 anos, 5 meses e 6 dias"
+    function formatarTempoCalendario(tempo) {
+        if (!tempo) return '—';
+        const partes = [];
+        if (tempo.anos > 0) partes.push(`${tempo.anos} ${tempo.anos === 1 ? 'ano' : 'anos'}`);
+        if (tempo.meses > 0) partes.push(`${tempo.meses} ${tempo.meses === 1 ? 'mês' : 'meses'}`);
+        if (tempo.dias > 0) partes.push(`${tempo.dias} ${tempo.dias === 1 ? 'dia' : 'dias'}`);
+        if (partes.length === 0) return '0 dias';
+        if (partes.length === 1) return partes[0];
+        return partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1];
+    }
+
+    // Calcula tempo de permanência e situação da carência (1 ano)
+    // dataDesligamento opcional: se preenchida, o tempo é contado até a saída
+    function getInfoCooperacao(dataAssociacao, dataDesligamento) {
+        const ini = parseDataLocal(dataAssociacao);
+        if (!ini) return null;
+
+        const dataSaida = dataDesligamento ? parseDataLocal(dataDesligamento) : null;
+        const desligado = !!(dataSaida && dataSaida >= ini);
+        const fimEfetivo = desligado ? dataSaida : new Date();
+
+        const tempo = calcularTempo(ini, fimEfetivo);
+        const dataLimiteCarencia = adicionarAnos(ini, CARENCIA_ANOS);
+        const emCarencia = fimEfetivo < dataLimiteCarencia;
+
+        return {
+            tempo,
+            dataAssociacao: ini,
+            dataFim: fimEfetivo,
+            dataLimiteCarencia,
+            emCarencia,
+            desligado
+        };
+    }
+
+    // Texto de situação da carência (1 ano)
+    function situacaoCarencia(info) {
+        if (!info) return 'Data de associação não informada.';
+        const fmtLimite = formatarDataBR(info.dataLimiteCarencia);
+        if (info.desligado) {
+            return info.emCarencia
+                ? `Saiu em fase de carência (permanência menor que ${CARENCIA_ANOS} ano${CARENCIA_ANOS > 1 ? 's' : ''}).`
+                : `Carência de ${CARENCIA_ANOS} ano${CARENCIA_ANOS > 1 ? 's' : ''} concluída em ${fmtLimite}.`;
+        }
+        return info.emCarencia
+            ? `Em carência (fase de ${CARENCIA_ANOS} ano${CARENCIA_ANOS > 1 ? 's' : ''}) até ${fmtLimite}.`
+            : `Carência de ${CARENCIA_ANOS} ano${CARENCIA_ANOS > 1 ? 's' : ''} concluída em ${fmtLimite}.`;
+    }
+
+    // Expõe no escopo global as funções usadas em handlers inline (onchange/onblur)
+    window.cleanCPF = cleanCPF;
+    window.formatarCPF = formatarCPF;
+    window.formatarTelefone = formatarTelefone;
+    window.formatarCEP = formatarCEP;
+    window.formatToISODate = formatToISODate;
+    window.formatToDisplayDate = formatToDisplayDate;
+    window.validarCPF = validarCPF;
+
     // ---------- OTIMIZAÇÃO: OUVIDORES (LISTENERS) onSnapshot ----------
 
-    const debouncedCooperadosUpdate = debounce((snapshot) => {
-        window.cooperadosCache = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        
+    // Atualiza a UI após a estabilização do snapshot (evita re-render em excesso).
+    // O cache em si é atualizado IMEDIATAMENTE, para o usuário nunca editar
+    // um registro que "ainda não apareceu" no cache.
+    const debouncedCooperadosUI = debounce(() => {
         console.log(`Cache de cooperados ATUALIZADO: ${window.cooperadosCache.length} registros.`);
         mostrarNotificacao('Dados sincronizados.', 'sucesso');
-        
+
         if (document.getElementById('modalPesquisa').classList.contains('active')) {
             filtrarModal();
         }
         if (document.getElementById('modalResumoGeral').classList.contains('active')) {
             buildResumoGeral();
         }
-    }, 1000); 
+    }, 1000);
 
 
     function listenToFuncionarios() {
@@ -1386,9 +1505,9 @@
         const q = query(collection(db, 'associados'), orderBy('nome'));
         
         cooperadosListener = onSnapshot(q, (snapshot) => {
-            console.log("Snapshot de cooperados recebido, aguardando 1s para atualizar UI...");
-            debouncedCooperadosUpdate(snapshot);
-            
+            // Cache atualizado na hora (evita edição em registro "inexistente")
+            window.cooperadosCache = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            debouncedCooperadosUI();
         }, (error) => {
             console.error("Erro ao ouvir cooperados:", error);
             mostrarNotificacao('Erro ao sincronizar dados dos cooperados.', 'erro');
@@ -1599,32 +1718,45 @@
         await buildResumo(); 
         
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        // nome "pdfDoc" para não ofuscar o "doc" importado do Firebase
+        const pdfDoc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
         
         const contentElement = document.getElementById('resumoContent');
         const nomeTitular = document.getElementById('nome').value || 'Cooperado';
 
         mostrarNotificacao('Gerando PDF...', 'info');
 
+        // O html2canvas precisa de um elemento visível para capturar o resumo.
+        // Ativa temporariamente a aba "Resumo" e restaura a aba original ao final.
+        const tabResumo = document.getElementById('resumo');
+        const tabOriginal = document.querySelector('.tabContent.active');
+        const eraResumo = tabResumo.classList.contains('active');
+        if (tabOriginal && tabOriginal.id !== 'resumo') tabOriginal.classList.remove('active');
+        tabResumo.classList.add('active');
+
         try {
             const canvas = await html2canvas(contentElement, { scale: 2 });
             
             const imgData = canvas.toDataURL('image/png');
-            const imgProps = doc.getImageProperties(imgData);
-            const pdfWidth = doc.internal.pageSize.getWidth() - 20; 
+            const imgProps = pdfDoc.getImageProperties(imgData);
+            const pdfWidth = pdfDoc.internal.pageSize.getWidth() - 20; 
             const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
 
-            doc.setFontSize(16);
-            doc.text('CBSaúde Cooperados - Resumo Individual', 10, 15);
+            pdfDoc.setFontSize(16);
+            pdfDoc.text('CBSaúde Cooperados - Resumo Individual', 10, 15);
             
-            doc.addImage(imgData, 'PNG', 10, 25, pdfWidth, pdfHeight);
+            pdfDoc.addImage(imgData, 'PNG', 10, 25, pdfWidth, pdfHeight);
             
-            doc.save(`Resumo-${nomeTitular}.pdf`);
+            pdfDoc.save(`Resumo-${nomeTitular}.pdf`);
             mostrarNotificacao('PDF gerado com sucesso!', 'sucesso');
 
         } catch (error) {
             console.error("Erro ao gerar PDF com html2canvas:", error);
             mostrarNotificacao('Erro ao gerar PDF. Veja o console.', 'erro');
+        } finally {
+            // Restaura a aba que estava ativa antes de gerar o PDF
+            if (!eraResumo) tabResumo.classList.remove('active');
+            if (tabOriginal && tabOriginal.id !== 'resumo') tabOriginal.classList.add('active');
         }
     };
 
@@ -1758,7 +1890,7 @@
         funcsFiltrados.forEach(f => {
             const isAdmin = f.admin;
             const permissions = f.permissions || {};
-            const isProtected = isAdmin || (f.user === window.usuarioLogado.user); 
+            const isProtected = isAdmin || (f.user === window.usuarioLogado?.user);
             
             const card = `
                 <div class="funcionario-card" data-id="${f.id}">
@@ -1998,6 +2130,19 @@
         }
         // -----------------------------------------------------------
 
+        // Tempo na cooperativa + situação da carência (1 ano)
+        const infoCoop = getInfoCooperacao(a.dataAssociacao, a.dataDesligamento);
+        let tempoHtml = '';
+        if (infoCoop) {
+            const textoTempo = infoCoop.desligado ? 'Permaneceu:' : 'Tempo na coop.:';
+            const carenciaHtml = infoCoop.emCarencia
+                ? `Carência (1 ano): <strong style="color: var(--aviso);">em carência${infoCoop.desligado ? '' : ' até ' + formatarDataBR(infoCoop.dataLimiteCarencia)}</strong>`
+                : `Carência (1 ano): <strong style="color: var(--sucesso);">concluída em ${formatarDataBR(infoCoop.dataLimiteCarencia)}</strong>`;
+            tempoHtml = `<div style="color: var(--texto-suave); font-size: 0.9em;">
+                ${textoTempo} ${formatarTempoCalendario(infoCoop.tempo)} (${formatarDataBR(infoCoop.dataAssociacao)}${infoCoop.desligado ? ' → ' + formatarDataBR(infoCoop.dataFim) : ' → hoje'}) | ${carenciaHtml}
+            </div>`;
+        }
+
         div.insertAdjacentHTML('beforeend', `
             <div class="list-item" style="display:flex; justify-content:space-between; align-items:center;">
                 <div onclick="editAssociado('${a.id}')" style="flex: 1; cursor: pointer; padding-right: 1rem;">
@@ -2010,9 +2155,10 @@
                         </span>
                     </div>
                     ${infoExtra} <div style="color: var(--texto-suave); font-size: 0.9em;">
-                        CPF: ${formatarCPF(a.cpf) || '—'} 
+                        CPF: ${formatarCPF(a.cpf) || '—'}
                         ${a.pasta ? ` | Pasta: ${a.pasta}` : ''}
                     </div>
+                    ${tempoHtml}
                 </div>
                 ${removeBtn}
             </div>
@@ -2093,8 +2239,8 @@
                 <div class="row animate-scale-in" style="align-items:start;margin-bottom:1rem;padding:1rem;background:var(--azul-claro);border-radius:8px;">
                     <div class="col"><label>Nome</label><input value="${escapeHTML(d.nome)}" onchange="window.deps[${i}].nome=this.value.trim()" ${readOnlyAttr}></div>
                     <div class="col"><label>Parentesco</label><input value="${escapeHTML(d.parent)}" onchange="window.deps[${i}].parent=this.value.trim()" ${readOnlyAttr}></div>
-                    <div class="col"><label>Nasc.</label><input type="date" value="${formatToISODate(d.nasc)}" onchange="window.deps[${i}].nasc=formatToDisplayDate(this.value)" ${readOnlyAttr}></div>
-                    <div class="col"><label>CPF</label><input value="${formatarCPF(d.cpf)}" onchange="window.deps[${i}].cpf=cleanCPF(this.value)" onblur="this.value=formatarCPF(this.value)" ${readOnlyAttr}></div>
+                    <div class="col"><label>Nasc.</label><input type="date" value="${formatToISODate(d.nasc)}" onchange="window.deps[${i}].nasc=window.formatToDisplayDate(this.value)" ${readOnlyAttr}></div>
+                    <div class="col"><label>CPF</label><input maxlength="14" placeholder="000.000.000-00" value="${formatarCPF(d.cpf)}" onchange="window.deps[${i}].cpf=window.cleanCPF(this.value)" onblur="this.value=window.formatarCPF(this.value);window.deps[${i}].cpf=window.cleanCPF(this.value)" ${readOnlyAttr}></div>
                     <div class="col"><label>Plano</label>
                         <select onchange="window.deps[${i}].plano=this.value" ${disabledAttr}>
                             <option value="">Nenhum</option>
@@ -2130,6 +2276,7 @@
             plano: document.getElementById('plano').value,
             nasc: document.getElementById('nasc').value, 
             dataAssociacao: document.getElementById('dataAssociacao').value, 
+            dataDesligamento: document.getElementById('dataDesligamento').value,
             dependentes: window.deps || [],
             conjuge: {
                 nome: document.getElementById('conjNome').value || '',
@@ -2180,25 +2327,26 @@
             total += conjValor;
         }
 
-        if (currentData.dataAssociacao) {
-             const joinDate = new Date(currentData.dataAssociacao + 'T00:00:00'); 
-             const now = new Date();
-             if (!isNaN(joinDate.getTime())) {
-                let months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth());
-                if (now.getDate() < joinDate.getDate()) months--;
-                months = Math.max(months, 0);
-                let totalPaid = months * total;
-                r.insertAdjacentHTML('beforeend', `
-                    <div class="resumo-block">
-                        <h3>Histórico</h3>
-                        <div class="resumo-line"><span>Data de Associação:</span><span>${formatToDisplayDate(currentData.dataAssociacao)}</span></div>
-                        <div class="resumo-line"><span>Meses Cooperado:</span><span>${months}</span></div>
-                        <div class="resumo-line"><span>Total Pago (estimado):</span><span>R$ ${totalPaid.toFixed(2)}</span></div>
-                    </div>
-                `);
-             } else {
-                 r.insertAdjacentHTML('beforeend', `<h3>Histórico</h3><p style="color:#000;">Data de Associação inválida.</p>`);
-             }
+        // --- Tempo na cooperativa + fase de carência (1 ano) ---
+        const infoCoop = getInfoCooperacao(currentData.dataAssociacao, currentData.dataDesligamento);
+        if (infoCoop) {
+            const mesesCooperado = infoCoop.tempo.anos * 12 + infoCoop.tempo.meses;
+            const totalPaid = mesesCooperado * total;
+            const rotuloTempo = infoCoop.desligado ? 'Tempo Permanecido na Cooperativa:' : 'Tempo na Cooperativa:';
+            let periodoInfo = `de ${formatarDataBR(infoCoop.dataAssociacao)} até ${formatarDataBR(infoCoop.dataFim)}`;
+            r.insertAdjacentHTML('beforeend', `
+                <div class="resumo-block">
+                    <h3>Histórico</h3>
+                    <div class="resumo-line"><span>Data de Associação:</span><span>${formatarDataBR(infoCoop.dataAssociacao)}</span></div>
+                    ${infoCoop.desligado ? `<div class="resumo-line"><span>Data de Saída/Desligamento:</span><span>${formatarDataBR(infoCoop.dataFim)}</span></div>` : ''}
+                    <div class="resumo-line"><span>${rotuloTempo}</span><span>${formatarTempoCalendario(infoCoop.tempo)} (${periodoInfo})</span></div>
+                    <div class="resumo-line"><span>Fase de Carência (1 ano):</span><span>${situacaoCarencia(infoCoop)}</span></div>
+                    <div class="resumo-line"><span>Meses Cooperado:</span><span>${mesesCooperado}</span></div>
+                    <div class="resumo-line"><span>Total Pago (estimado):</span><span>R$ ${totalPaid.toFixed(2)}</span></div>
+                </div>
+            `);
+        } else if (currentData.dataAssociacao) {
+            r.insertAdjacentHTML('beforeend', `<h3>Histórico</h3><p style="color:#000;">Data de Associação inválida.</p>`);
         } else {
             r.insertAdjacentHTML('beforeend', `<h3>Histórico</h3><p style="color:#000;">Data de Associação não informada.</p>`);
         }
@@ -2242,11 +2390,16 @@
             let countCooperados = 0;
             let totalDependentes = 0;
             let totalConjuges = 0;
+            let countEmCarencia = 0;
 
             lista.forEach(a => {
                 if (!a.nome) return;
                 countCooperados++;
-                
+
+                const infoCoop = getInfoCooperacao(a.dataAssociacao, a.dataDesligamento);
+                // Somente ativos que ainda não completaram 1 ano de associação
+                if (infoCoop && infoCoop.emCarencia && !infoCoop.desligado) countEmCarencia++;
+
                 if (a.dependentes) {
                     totalDependentes += a.dependentes.filter(d => d.nome).length;
                 }
@@ -2279,6 +2432,10 @@
                     <div class="resumo-card">
                         <h3>Total de Vidas</h3>
                         <div class="numero">${totalVidas}</div>
+                    </div>
+                    <div class="resumo-card">
+                        <h3>Em Carência (1 ano)</h3>
+                        <div class="numero">${countEmCarencia}</div>
                     </div>
                     <div class="resumo-card destaque" style="grid-column: 1 / -1;">
                         <h3>Valor Total Mensal</h3>
@@ -2322,6 +2479,7 @@
             document.getElementById('matricula').value = a.matricula || '';
             document.getElementById('statusParentesco').value = a.statusParentesco || '';
             document.getElementById('dataAssociacao').value = formatToISODate(a.dataAssociacao);
+            document.getElementById('dataDesligamento').value = formatToISODate(a.dataDesligamento);
             document.getElementById('nasc').value = formatToISODate(a.nasc);
             document.getElementById('sexo').value = a.sexo || '';
             document.getElementById('civil').value = a.civil || '';
@@ -2367,6 +2525,7 @@
             matricula: form.matricula.value.trim(),
             nasc: formatToDisplayDate(form.nasc.value),
             dataAssociacao: formatToDisplayDate(form.dataAssociacao.value),
+            dataDesligamento: formatToDisplayDate(form.dataDesligamento.value),
             sexo: form.sexo.value,
             civil: form.civil.value,
             endereco: form.endereco.value.trim(),
@@ -2403,15 +2562,28 @@
         }
         
         // Validação estrita de CPF foi REMOVIDA daqui conforme solicitação
+        // (mantido apenas um aviso suave, sem bloquear o salvamento)
+        if (associado.cpf.length === 11 && !validarCPF(associado.cpf)) {
+            mostrarNotificacao('Atenção: o CPF do titular parece inválido. Verifique antes de salvar.', 'aviso', 6000);
+        }
 
         if (!associado.statusParentesco) {
              mostrarNotificacao('O campo "Status/Tipo de Cooperado" é obrigatório.', 'erro');
              switchTab('dados'); document.getElementById('statusParentesco').focus(); return;
         }
 
+        // Consistência de datas: a saída não pode ser anterior à associação
+        const dataAsoc = parseDataLocal(associado.dataAssociacao);
+        const dataSaida = parseDataLocal(associado.dataDesligamento);
+        if (dataAsoc && dataSaida && dataSaida < dataAsoc) {
+            mostrarNotificacao('A data de saída/desligamento não pode ser anterior à data de associação.', 'erro');
+            switchTab('dados'); document.getElementById('dataDesligamento').focus(); return;
+        }
+
         try {
             if (editId) {
-                await setDoc(doc(db, 'associados', editId), associado);
+                // merge: true preserva campos extras que não fazem parte do formulário
+                await setDoc(doc(db, 'associados', editId), associado, { merge: true });
                 mostrarNotificacao('Cooperado atualizado com sucesso!', 'sucesso');
             } else {
                 const docRef = await addDoc(collection(db, 'associados'), associado);
@@ -2588,7 +2760,9 @@
 
     // ---------- INICIALIZAÇÃO ----------
 
-    window.onload = () => {
+    // O script é um módulo (defer): o DOM já está pronto quando ele executa,
+    // então a inicialização é feita diretamente (mais confiável que window.onload).
+    function initApp() {
         listenToFuncionarios();
         
         document.getElementById('userInput').focus();
@@ -2617,7 +2791,9 @@
         });
         
         renderDeps();
-    };
+    }
+
+    initApp();
 </script>
 </body>
 </html>
